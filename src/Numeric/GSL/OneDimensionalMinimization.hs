@@ -43,21 +43,25 @@ wrap :: (Double -> Double) -> IO (C'gsl_function) -- (FunPtr (CDouble -> Ptr () 
 wrap f = do f1 <- (wrap3 (wrap2 f)) 
             return $ C'gsl_function f1 nullPtr
 
-brent f l u guess abs rel = unsafePerformIO $ wrapped_min Brent f l u guess abs rel
-goldenSection f l u guess abs rel  = unsafePerformIO $ wrapped_min GoldenSection f l u guess abs rel 
+brent' abs rel f l u guess = brent abs rel f l u guess (f l) (f u) (f guess)
+goldenSection' abs rel f l u guess = goldenSection abs rel f l u guess (f l) (f u) (f guess)
+brent abs rel f l u guess fl fu fg = unsafePerformIO $ wrapped_min Brent f l u guess abs rel fg fl fu
+goldenSection abs rel f l u guess fl fu fg = unsafePerformIO $ wrapped_min GoldenSection f l u guess abs rel fg fl fu
 
-wrapped_min :: GSL_Min_Methods -> (Double -> Double) -> Double -> Double -> Double -> Double -> Double -> IO Double 
-wrapped_min method f l u guess epsabs epsrel = do c'gsl_set_error_handler_off 
+wrapped_min :: GSL_Min_Methods -> (Double -> Double) -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> Double -> IO Double 
+wrapped_min method f l u guess epsabs epsrel 
+                                fg fl fu     = do c'gsl_set_error_handler_off 
                                                   alg <- case method of 
                                                            Brent -> peek $ p'gsl_min_fminimizer_brent
                                                            GoldenSection -> peek $ p'gsl_min_fminimizer_goldensection
                                                   f' <- wrap f  
-                                                  ans <- with f' $ raw_min alg (realToFrac l) (realToFrac u) (realToFrac guess) (realToFrac epsabs) (realToFrac epsrel)
+                                                  ans <- with f' $ raw_min alg (realToFrac l) (realToFrac u) (realToFrac guess) (realToFrac epsabs) (realToFrac epsrel) (realToFrac fg) (realToFrac fl) (realToFrac fu)
                                                   freeHaskellFunPtr $ c'gsl_function'function f'
                                                   return $ realToFrac ans
                      
-raw_min method l u guess epsabs epsrel f  = do gsl_min_fminimizer <- c'gsl_min_fminimizer_alloc method
-                                               return_i <- c'gsl_min_fminimizer_set gsl_min_fminimizer f guess l u
+raw_min method l u guess epsabs epsrel 
+                               fg fl fu f = do gsl_min_fminimizer <- c'gsl_min_fminimizer_alloc method
+                                               return_i <- c'gsl_min_fminimizer_set_with_values gsl_min_fminimizer f guess fg l fl u fu 
                                                minimum<-minx gsl_min_fminimizer last l u epsabs epsrel
                                                c'gsl_min_fminimizer_free gsl_min_fminimizer
                                                return minimum
